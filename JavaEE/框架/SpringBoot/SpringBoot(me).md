@@ -8,7 +8,7 @@
 
 
 typora-root-url: ..\..\..\Pic
-typora-copy-images-to: ..\..\..\Pic
+typora-copy-images-to: upload
 ---
 
 # 入门
@@ -2086,6 +2086,7 @@ If you want to take complete control of Spring MVC, you can add your own `@Confi
 
 1. SpringBoot在自动配置很多组件的时候，先看容器中有没有用户自动配置的(@Bean,@Componet)如果有就用用户自己配置的，如果没有，才自动配置如果有些组件可以有多个(viewResolver)将用户配合和自己默认的组合起来
 2.  在SpringBoot中有很多的xxxwebMvcConfigurer帮助我们进行扩展
+3. 在SpringBoot中有很多的xxxCustomizer帮助我们进行扩展
 
 ==心得==，只要是从容器中获取的，都可以通过@bean等方式加入到容器，在自己配置，前提就是在xxxMvcAutoConfiguration，已经帮你写好**从容器取出，并自动加载**的方法
 
@@ -2286,9 +2287,9 @@ public class MyMvcConfig implements WebMvcConfigurer {
 
 
 
-# RestfulCRUD
+## 7.RestfulCRUD
 
-## 1.默认访问首页
+### 1.默认访问首页
 
 配置viewController
 
@@ -2335,7 +2336,7 @@ public class MyMvcConfig implements WebMvcConfigurer {
 
 
 
-## 2.国际化
+### 2.国际化
 
 1. 编写**国际化配置文件**
 2. 使用ResourceBundleMessageSource管理国际化资源文件
@@ -2616,7 +2617,7 @@ public class MyMvcConfig implements WebMvcConfigurer {
 
 
 
-## 3.登入
+### 3.登入
 
 开发期间模板引擎页面修改以后，要实时生效
 
@@ -2683,7 +2684,7 @@ html
 
 
 
-## 4.登录检测
+### 4.登录检测
 
 创建拦截器：
 
@@ -2794,7 +2795,7 @@ public class MyMvcConfig implements WebMvcConfigurer {
 
 
 
-##  5.Restful的CRUD
+###  5.Restful的CRUD
 
 实验要求：
 
@@ -3036,7 +3037,7 @@ insert的公共片段在div标签中
 
 
 
-## 6.错误处理机制
+## 8.错误处理机制
 
 ### 1.SpringBoot默认的错误处理机制
 
@@ -3050,7 +3051,7 @@ insert的公共片段在div标签中
 
          ![image-20210104143031028](https://raw.githubusercontent.com/Codemilk/LearnNotes/main/Pic/20210104143031.png)
 
-####  2.服务器通过什么来判断请求方式浏览器还是客户端？请求头不一样
+####  2.服务器通过什么来判断请求方式浏览器还是客户端？通过请求头不一样来判断
 
 浏览器发送请求的请求头
 
@@ -3317,7 +3318,275 @@ private ModelAndView resolveResource(String viewName, Map<String, Object> model)
 
       2. 客户端和浏览器的反映效果是自适应的
 
-         ![image-20210105163154457](/image-20210105163154457.png)
+         ![image-20210105163154457](https://raw.githubusercontent.com/Codemilk/LearnNotes/main/Pic/20210108212550.png)
 
-      3. 
+      3. ```java
+         package springboot.ExceptionHandler;
+         
+         
+         import org.springframework.web.bind.annotation.ControllerAdvice;
+         import org.springframework.web.bind.annotation.ExceptionHandler;
+         import org.springframework.web.bind.annotation.ResponseBody;
+         import springboot.Exception.UserNotExistException;
+         
+         import javax.servlet.http.HttpServletRequest;
+         import java.util.HashMap;
+         import java.util.Map;
+         
+         @ControllerAdvice
+         public class MyExceptionHandler {
+         
+         
+         //    @ExceptionHandler(UserNotExistException.class)
+         //    //这样其实不好，是手动写好你的浏览器和客户端都返回json的，我们需要自适应
+         //    @ResponseBody
+         //    public Map hadnleUserNotExistException(Exception e){
+         //
+         //        Map map=new HashMap<>();
+         //        map.put("code", "user.notexitst");
+         //        map.put("message", e.getMessage());
+         //        return map;
+         //    }
+         
+         //   自适应
+             @ExceptionHandler(UserNotExistException.class)
+             public String hadnleUserNotExistException(Exception e, HttpServletRequest request){
+         
+                 Map map=new HashMap<>();
+                 map.put("code", "user.notexitst");
+                 map.put("message", "用户信息不对");
+                 //转发到error请求,也就是说BasicErrorController会拦截到  "${server.error.path:${error.path:/error}}" 请求
+                 //BasicErrorController会处理4xx和5xx的异常代码，我们做自己定义状态码
+                 request.setAttribute("javax.servlet.error.status_code",500);
+                 return "forward:/error";
+             }
+         }
+         ```
 
+3. 将我们的定制数据携带出去；
+
+   出现错误以后，会来到/error请求，会被BasicErrorController处理，响应出去可以获取的数据是由getErrorAttributes得到的（是AbstractErrorController（ErrorController）规定的方法）；
+
+   ​	1、完全来编写一个ErrorController的实现类【或者是编写AbstractErrorController的子类】，放在容器中；
+
+   ​	2、页面上能用的数据，或者是json返回能用的数据都是通过errorAttributes.getErrorAttributes得到；
+
+   ​			容器中DefaultErrorAttributes.getErrorAttributes()；默认进行数据处理的；
+
+   自定义ErrorAttributes
+
+   ```java
+   //给容器中加入我们自己定义的ErrorAttributes
+   @Component
+   public class MyErrorAttributes extends DefaultErrorAttributes {
+   
+       @Override
+       public Map<String, Object> getErrorAttributes(RequestAttributes requestAttributes, boolean includeStackTrace) {
+           Map<String, Object> map = super.getErrorAttributes(requestAttributes, includeStackTrace);
+           map.put("company","atguigu");
+           return map;
+       }
+   }
+   ```
+
+   最终的效果：响应是自适应的，可以通过定制ErrorAttributes改变需要返回的内容，
+
+   ![](https://raw.githubusercontent.com/Codemilk/LearnNotes/main/Pic/20210108212536.png)
+
+   当我们需要传入自定义的json数据，我们可以将数据传入req、session等域中
+
+   ![image-20210108213226019](https://raw.githubusercontent.com/Codemilk/LearnNotes/main/Pic/20210108213226.png)
+   
+   通过最后webRequest.getAttribute(参数名,对应Scope的数字);
+   
+   ![image-20210108212929733](https://raw.githubusercontent.com/Codemilk/LearnNotes/main/Pic/20210108212930.png)
+   
+   ![image-20210108213720157](https://raw.githubusercontent.com/Codemilk/LearnNotes/main/Pic/20210108213721.png)
+
+
+
+
+
+
+
+##  9.配置嵌入式Servlet容器
+
+SpringBoot默认使用的是嵌入式的Servlet容器(Tomcat)
+
+通过Pom文件可知道依赖关系，tom通过嵌入式的方法是作为SpringBoot的servlet容器
+
+![image-20210109154944552](/C:/Users/lenovo/AppData/Roaming/Typora/typora-user-images/image-20210109154944552.png)
+
+### 1.嵌入式容器的配置
+
+1. 如何定制和修改Servlet容器的相关配置
+
+   1. 修改和Server有关的配置（上文我们讲过可以通过修改ServerProperties类中对应在配置文件中的属性的值）
+
+      1. ![image-20210109160940106](/C:/Users/lenovo/AppData/Roaming/Typora/typora-user-images/image-20210109160940106.png)
+
+      ```properties
+      server.port=6666
+      server.servlet.context-path=WEB
+      
+      # 通用的Servlet容器设置
+      server.xxx
+      
+      # Tomcat的设置
+      server.tomcat.accept-count=
+      server.tomcat.accesslog.ipv6-canonical=true
+      server.tomcat.accesslog.locale=
+      
+      ```
+
+   2. 编写一个WebServerFactoryCustomizer<ConfigurableWebServerFactory>（嵌入式Servlet容器定制器）来修改Servlet容器配置
+
+      1. ```java
+         @Configuration
+         public class MyMvcConfig implements WebMvcConfigurer {
+         
+             @Bean
+             public WebServerFactoryCustomizer<ConfigurableWebServerFactory> webServerFactoryCustomizer(){
+                 /**
+                  * public interface WebServerFactoryCustomizer<T extends WebServerFactory> {
+                  *             void customize(T fa ctory);
+                  *ConfigurableWebServerFactory继承自WebServerFactory，所以写成这种方式
+                  * */
+                 return new WebServerFactoryCustomizer<ConfigurableWebServerFactory>() {
+                     //定制 嵌入式的servlet容器的相关规则
+                     @Override
+                     public void customize(ConfigurableWebServerFactory factory) {
+                           factory.setPort(8081);
+                     }
+                 };
+         
+         
+             }
+         ```
+
+2. SpringBoot能不能修改支持其他的Servlet容器
+
+
+
+### 2.注册三大组件
+
+由于SpringBoot默认是以jar包的方式启动嵌入式的Servlet容器来启动SpringBoot的web应用,我们没有传统web那样的结构，也就是说没有web.xml,没法注册Servlet,Filter,Listener这些组件
+
+SpringBoot提供了一些类来注册组件,下方↓
+
+![image-20210109170654855](/C:/Users/lenovo/AppData/Roaming/Typora/typora-user-images/image-20210109170654855.png)
+
+
+
+#### Servlet
+
+```java
+package springboot.Servlet;
+
+import javax.servlet.ServletException;
+import javax.servlet.http.HttpServlet;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+import java.io.IOException;
+
+public class MyServlet extends HttpServlet {
+
+    @Override
+    protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        resp.getWriter().write("My name is MyServlet");
+    }
+
+    @Override
+    protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+      doPost(req, resp);
+    }
+}
+```
+
+![image-20210109194726815](/C:/Users/lenovo/AppData/Roaming/Typora/typora-user-images/image-20210109194726815.png)
+
+
+
+#### Filter
+
+```java
+package Filters;
+
+import javax.servlet.*;
+import java.io.IOException;
+
+public class MyFilter implements Filter {
+
+
+    @Override
+    public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain) throws IOException, ServletException {
+        System.out.println("MyFilter_doFilter");
+        //放行Filter
+        chain.doFilter(request, response);
+    }
+
+}
+```
+
+![image-20210109200102251](/C:/Users/lenovo/AppData/Roaming/Typora/typora-user-images/image-20210109200102251.png)
+
+
+
+#### Listener
+
+```java
+package springboot.Listeners;
+
+import javax.servlet.ServletContextEvent;
+import javax.servlet.ServletContextListener;
+
+public class MyListener implements ServletContextListener {
+    @Override
+    public void contextInitialized(ServletContextEvent sce) {
+        System.out.println("web开始了");
+    }
+
+    @Override
+    public void contextDestroyed(ServletContextEvent sce) {
+        System.out.println("web结束了");
+    }
+}
+```
+
+SpringBoot帮我们自动配置SpringMVC的时候,自动注册了SpringMVC的前端控制器：DispatcherServlet
+
+```java
+@Bean(name = DEFAULT_DISPATCHER_SERVLET_REGISTRATION_BEAN_NAME)
+@ConditionalOnBean(value = DispatcherServlet.class, name = DEFAULT_DISPATCHER_SERVLET_BEAN_NAME)
+public DispatcherServletRegistrationBean dispatcherServletRegistration(DispatcherServlet dispatcherServlet,
+      WebMvcProperties webMvcProperties, ObjectProvider<MultipartConfigElement> multipartConfig) {
+    /**下面就是注册到SpringBoot，构造函数中的参数webMvcProperties.getServlet().getPath()的值就是"/"，表示拦截所有的路径
+    包括静态资源,但是不拦截JSP请求；/*会拦截jsp请求,可以通过webMvcProperties中的包含属性path可以知道可以在配置文件中配置spring.mvc.servlet.path
+    配置拦截路径
+    */
+   DispatcherServletRegistrationBean registration = new DispatcherServletRegistrationBean(dispatcherServlet,
+         webMvcProperties.getServlet().getPath());
+   registration.setName(DEFAULT_DISPATCHER_SERVLET_BEAN_NAME);
+   registration.setLoadOnStartup(webMvcProperties.getServlet().getLoadOnStartup());
+   multipartConfig.ifAvailable(registration::setMultipartConfig);
+   return registration;
+}
+```
+
+
+
+### 3.嵌入式服务器的变更
+
+SpringBoot默认提供了Undertow、Tomcat、Jetty
+
+1. 我们能适应嵌入式的Tomcat因为他在spring-boot-starter-web引入了关于tomcat的依赖，所以如果我们如果使用其他的嵌入式Servlet容器，要先去排除这个依赖
+
+   ![image-20210110124332917](/C:/Users/lenovo/AppData/Roaming/Typora/typora-user-images/image-20210110124332917.png)
+
+2. 引入其他的Servlet容器
+
+   ![image-20210110131708077](/C:/Users/lenovo/AppData/Roaming/Typora/typora-user-images/image-20210110131708077.png)
+
+3. 运行结果
+
+   ![image-20210110131728211](/C:/Users/lenovo/AppData/Roaming/Typora/typora-user-images/image-20210110131728211.png)
