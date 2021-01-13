@@ -3590,3 +3590,344 @@ SpringBoot默认提供了Undertow、Tomcat、Jetty
 3. 运行结果
 
    ![image-20210110131728211](/C:/Users/lenovo/AppData/Roaming/Typora/typora-user-images/image-20210110131728211.png)
+
+
+
+###  4.嵌入式服务器自动配合原理
+
+主要观察EmbeddedWebServerFactoryCustomizerAutoConfiguration(嵌入式的Servlet容器)类的自动配置
+
+```java
+@Configuration(proxyBeanMethods = false)
+@ConditionalOnWebApplication
+@EnableConfigurationProperties(ServerProperties.class)
+public class EmbeddedWebServerFactoryCustomizerAutoConfiguration {
+    
+	/**
+	 * Nested configuration if Tomcat is being used.
+	 */
+	@Configuration(proxyBeanMethods = false)
+	@ConditionalOnClass({ Tomcat.class, UpgradeProtocol.class })
+	public static class TomcatWebServerFactoryCustomizerConfiguration {
+
+		@Bean
+		public TomcatWebServerFactoryCustomizer tomcatWebServerFactoryCustomizer(Environment environment,
+				ServerProperties serverProperties) {
+			return new TomcatWebServerFactoryCustomizer(environment, serverProperties);
+		}
+
+	}
+```
+
+
+
+
+
+###  5.使用外置的Servlet容器
+
+嵌入式Servlet容器
+
+​        优点：简单、便携
+
+​        缺点：默认不支持JSP、优化定制比较复杂
+
+
+
+# 数据访问
+
+## JDBC
+
+**引入依赖**
+
+![image-20210111161326484](/C:/Users/lenovo/AppData/Roaming/Typora/typora-user-images/image-20210111161326484.png)
+
+**在配置文件配置**
+
+```yaml
+spring:
+  datasource:
+    username: root
+    password: 123456
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/SpringBootTest?serverTimezone=UTC&useUnicode=true&characterEncoding=utf8&characterSetResults=utf8&useSSL=false&verifyServerCertificate=false&autoReconnct=true&autoReconnectForPools=true&allowMultiQueries=true
+```
+
+**测试**
+
+```java
+package springboot;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+
+import javax.sql.DataSource;
+import java.sql.SQLException;
+
+@SpringBootTest
+class ApplicationTests {
+
+   @Autowired
+   DataSource   dataSource;
+
+   @Test
+   void contextLoads() throws SQLException {
+
+      System.out.println(dataSource.getClass());
+      System.out.println(dataSource.getConnection());
+
+      
+   }
+
+}
+```
+
+具体通过查看对应的配置类来修改对应的配置文件中的属性
+
+![image-20210111182309644](/C:/Users/lenovo/AppData/Roaming/Typora/typora-user-images/image-20210111182309644.png)
+
+
+
+
+
+**自动配置原理：org.springframework.boot.autoconfigure.jdbc**
+
+1. 参考DataSourceConfiguration可以看出默认指定Tomcat连接池；可以使用spring.datasource.type指定数据源类型，这样就会优先加载指定的，源码通过检测到有自定义的数据源,不去加载SpringBoot提供的数据源
+
+   1. ![image-20210111183224057](/C:/Users/lenovo/AppData/Roaming/Typora/typora-user-images/image-20210111183224057.png)
+
+2. SpingBoot默认支持数据源：
+
+   * org.apache.tomcat.jdbc.pool.DataSource（Tomcat）
+
+   * HikariDataSource
+
+   * org.apache.commons.dbcp2.BasicDataSource（dbcp2）
+
+   * 自定义数据源：
+
+     * ![image-20210111183758577](/C:/Users/lenovo/AppData/Roaming/Typora/typora-user-images/image-20210111183758577.png)
+
+   * 4、**DataSourceInitializer：ApplicationListener**；
+
+     ​	作用：
+
+     ​		1）、runSchemaScripts()	;运行建表语句；
+
+     ​		2）、runDataScripts();运行插入数据的sql语句；
+
+     默认只需要将文件命名为：
+
+     ```properties
+     schema-*.sql、data-*.sql
+     默认规则：schema.sql，schema-all.sql；
+     可以使用   
+     	schema:
+     	 # 注意下面的:号后面不要有空格
+           - classpath:department.sql
+           指定位置
+     ```
+
+     5、操作数据库：自动配置了JdbcTemplate操作数据库
+
+**通过数据库连接池访问数据库**
+
+* Druid
+
+  * 方法1
+
+    * 通过配置文件配置
+
+      * ![image-20210111190635829](/C:/Users/lenovo/AppData/Roaming/Typora/typora-user-images/image-20210111190635829.png)
+
+      * 运行结果
+
+        ![image-20210111190715439](/C:/Users/lenovo/AppData/Roaming/Typora/typora-user-images/image-20210111190715439.png)
+
+      
+
+  * 方法2：通过@configurationProperties和配置类
+
+    * 实际情况中，我们需要配置数据库连接池的属性,但是本身配置文件是和对应的xxxproperties.class对应的，在SpirngBoot中其实没有Druid对应的属性映射
+
+      ![image-20210111191127948](/C:/Users/lenovo/AppData/Roaming/Typora/typora-user-images/image-20210111191127948.png)
+
+      ![image-20210111191322760](/C:/Users/lenovo/AppData/Roaming/Typora/typora-user-images/image-20210111191322760.png)
+
+    * 所以我们需要自己配置并加入到容器
+
+      * ```java
+        package springboot.DruidConfig;
+        
+        import com.alibaba.druid.pool.DruidDataSource;
+        import org.springframework.boot.context.properties.ConfigurationProperties;
+        import org.springframework.context.annotation.Bean;
+        import org.springframework.context.annotation.Configuration;
+        
+        @Configuration
+        public class druidConfig {
+        
+            @Bean
+            //DruidDataSource类中有着和配置文件中spring.datasource相对应的属性值,直接就可以赋值,在通过@bean加入到ico容器
+            @ConfigurationProperties(prefix = "spring.datasource")
+            public DruidDataSource dataSource(){
+                 return new DruidDataSource();
+            }
+        
+        }
+        ```
+
+      * 运行结果![image-20210111193230562](/C:/Users/lenovo/AppData/Roaming/Typora/typora-user-images/image-20210111193230562.png)
+
+      * 配置Drudi对应的监控
+
+        * ```java
+          package springboot.DruidConfig;
+          
+          import com.alibaba.druid.pool.DruidDataSource;
+          import com.alibaba.druid.support.http.StatViewServlet;
+          import com.alibaba.druid.support.http.WebStatFilter;
+          import org.springframework.boot.context.properties.ConfigurationProperties;
+          import org.springframework.boot.web.servlet.FilterRegistrationBean;
+          import org.springframework.boot.web.servlet.ServletRegistrationBean;
+          import org.springframework.context.annotation.Bean;
+          import org.springframework.context.annotation.Configuration;
+          
+          import java.util.Arrays;
+          import java.util.HashMap;
+          import java.util.Map;
+          
+          @Configuration
+          public class druidConfig {
+          
+              @Bean
+              @ConfigurationProperties(prefix = "spring.datasource")
+              public DruidDataSource dataSource(){
+                   return new DruidDataSource();
+              }
+          
+               /**
+                * 配置Druid监控
+                *     配置一个管理后台的Servlet
+                * */
+               @Bean
+               public ServletRegistrationBean statViewServlet(){
+                   //将  statViewServlet 加入到ioc
+                   ServletRegistrationBean<StatViewServlet> statViewServletServletRegistrationBean = new ServletRegistrationBean<>(new StatViewServlet(), "/druid/*");
+                   //配置statViewServlet的初始化参数
+                    //配置参数和参数值
+                   Map<String,String> initParams =new HashMap<>();
+                   initParams.put("jmxUsername","admin");
+                   initParams.put("jmxPassword","123456");
+                    //将配置好的属性传入servlet注册器
+                   statViewServletServletRegistrationBean.setInitParameters(initParams);
+                   return statViewServletServletRegistrationBean;
+               }
+          
+          
+               //配置一个web监控的Filter
+               public FilterRegistrationBean  webStatFilter(){
+          
+                   FilterRegistrationBean filterRegistrationBean = new FilterRegistrationBean();
+                   //和上边一样
+                   Map<String, String> initParams = new HashMap<>();
+                   initParams.put("exclusions", "*.js,*.css,/druid/*");
+                   filterRegistrationBean.setInitParameters(initParams);
+                   //配置拦截器和对应的拦截路径
+                   filterRegistrationBean.setFilter(new WebStatFilter());
+                   filterRegistrationBean.setUrlPatterns(Arrays.asList("/*"));
+          
+                   return     filterRegistrationBean;
+               }
+          }
+          ```
+        
+      * 运行结果：
+      
+        * ![image-20210111200745119](/C:/Users/lenovo/AppData/Roaming/Typora/typora-user-images/image-20210111200745119.png)
+
+## 整合Mybaits
+
+引入依赖
+
+![image-20210111201122448](/C:/Users/lenovo/AppData/Roaming/Typora/typora-user-images/image-20210111201122448.png)
+
+使用Druid数据源并且配置监控和web拦截器（上一个知识点写了）
+
+注解版：
+
+```java
+//指定这是一个操作数据库的mapper
+@Mapper
+public interface DepartmentMapper {
+
+    @Select("select * from department where id=#{id}")
+    public Department getDeptById(Integer id);
+
+    @Delete("delete from department where id=#{id}")
+    public int deleteDeptById(Integer id);
+
+    @Options(useGeneratedKeys = true,keyProperty = "id")
+    @Insert("insert into department(departmentName) values(#{departmentName})")
+    public int insertDept(Department department);
+
+    @Update("update department set departmentName=#{departmentName} where id=#{id}")
+    public int updateDept(Department department);
+}
+```
+
+问题：
+
+自定义MyBatis的配置规则；给容器中添加一个ConfigurationCustomizer；
+
+```java
+@org.springframework.context.annotation.Configuration
+public class MyBatisConfig {
+
+    @Bean
+    public ConfigurationCustomizer configurationCustomizer(){
+        return new ConfigurationCustomizer(){
+
+            @Override
+            public void customize(Configuration configuration) {
+                configuration.setMapUnderscoreToCamelCase(true);
+            }
+        };
+    }
+}
+```
+
+
+
+```java
+使用MapperScan批量扫描所有的Mapper接口；
+@MapperScan(value = "com.atguigu.springboot.mapper")
+@SpringBootApplication
+public class SpringBoot06DataMybatisApplication {
+
+	public static void main(String[] args) {
+		SpringApplication.run(SpringBoot06DataMybatisApplication.class, args);
+	}
+}
+```
+
+配置文件版
+
+```yaml
+mybatis:
+  config-location: classpath:mybatis/mybatis-config.xml 指定全局配置文件的位置
+  mapper-locations: classpath:mybatis/mapper/*.xml  指定sql映射文件的位置
+```
+
+更多使用参照
+
+http://www.mybatis.org/spring-boot-starter/mybatis-spring-boot-autoconfigure/
+
+
+
+
+
+# 启动原理
+
+
+
