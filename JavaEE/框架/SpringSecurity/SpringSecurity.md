@@ -403,6 +403,234 @@ public class MyUserService implements UserDetailsService {
 
 3. 创建User表对应的实体类（使用Lombok）
 
-4. 整合mpp，创建接口，继承mp的接口
+   ```java
+   package springsecurity.Entity;
+   
+   import lombok.Data;
+   
+   //Lombok的注解@Data可以通过getter和setter方法
+   @Data
+   public class User {
+       private int id;
+       private String password;
+   }
+   ```
 
-5. 
+4. 整合MapperPlus，创建接口，继承mp的接口
+
+   ```java
+   package springsecurity.Mapper;
+   
+   import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+   import springsecurity.Entity.User;
+   
+   public interface userMapper extends BaseMapper<User> {
+       
+   }
+   ```
+
+5. 在继承UserDetailsService类的loadUsername方法中使用MapperPlus来查询数据库
+
+   ```java
+   package springsecurity.Service;
+   
+   import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+   import org.springframework.beans.factory.annotation.Autowired;
+   import org.springframework.security.core.GrantedAuthority;
+   import org.springframework.security.core.authority.AuthorityUtils;
+   import org.springframework.security.core.userdetails.User;
+   import org.springframework.security.core.userdetails.UserDetails;
+   import org.springframework.security.core.userdetails.UserDetailsService;
+   import org.springframework.security.core.userdetails.UsernameNotFoundException;
+   import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+   import org.springframework.stereotype.Service;
+   import springsecurity.Entity.Users;
+   import springsecurity.Mapper.userMapper;
+   
+   import java.util.List;
+   
+   
+   @Service("userDetailsService")
+   public class MyUserService implements UserDetailsService {
+   
+       @Autowired
+       private userMapper userMapper;
+   
+   //    @Override
+       //方法参数username就是从表单过滤器拦截下的用户名
+       public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
+           /**这里就是判断从表单获取的数据和数据库比对（数据库查询）*/
+            //创建条件构造器
+           QueryWrapper queryWrapper=new QueryWrapper();
+            //这里就相当于where username(表的列名)=？
+           queryWrapper.eq("username",username);
+           Users users = userMapper.selectOne(queryWrapper);
+           if(users==null){
+               throw new UsernameNotFoundException("meiyou");
+           }
+           //权能
+           List<GrantedAuthority> authority = AuthorityUtils.commaSeparatedStringToAuthorityList("root");
+           //这里的密码不用加密，数据库已经加密好了
+           User user = new User(users.getUsername(),users.getPassword(), authority);
+           return user;
+       }
+   
+   
+   }
+   
+   ```
+
+6. 将对应的Mapper扫描到，在启动类配置@MapperScan将你的Mapper文件注册进去
+
+   ```java
+   package springsecurity;
+   
+   import org.mybatis.spring.annotation.MapperScan;
+   import org.springframework.boot.SpringApplication;
+   import org.springframework.boot.autoconfigure.SpringBootApplication;
+   
+   @SpringBootApplication
+   //将Mapper注册到对应的容器
+   @MapperScan("springsecurity.Mapper")
+   public class Application {
+   
+       public static void main(String[] args) {
+           SpringApplication.run(Application.class, args);
+       }
+   
+   }
+   ```
+
+7. 通过Druid连接数据库，进行数据操作
+
+   * 配置文件
+
+     ```yaml
+     spring:
+       datasource:
+         username: root
+         password: 123456
+         driver-class-name: com.mysql.cj.jdbc.Driver
+         url: jdbc:mysql://localhost:3306/logincase?serverTimezone=UTC&useUnicode=true&characterEncoding=utf8&characterSetResults=utf8&useSSL=false&verifyServerCertificate=false&autoReconnct=true&autoReconnectForPools=true&allowMultiQueries=true
+         type: com.alibaba.druid.pool.DruidDataSource
+         #   数据源其他配置
+         initialSize: 5
+         minIdle: 5
+         maxActive: 20
+         maxWait: 60000
+         timeBetweenEvictionRunsMillis: 60000
+         minEvictableIdleTimeMillis: 300000
+         validationQuery: SELECT 1 FROM DUAL
+         testWhileIdle: true
+         testOnBorrow: false
+         testOnReturn: false
+         poolPreparedStatements: true
+         
+     ```
+
+   * 通过配合类加入到容器并且和配置文件对应
+
+     ```java
+     package springsecurity.Config;
+     
+     import com.alibaba.druid.pool.DruidDataSource;
+     import org.springframework.boot.context.properties.ConfigurationProperties;
+     import org.springframework.context.annotation.Bean;
+     import org.springframework.context.annotation.Configuration;
+     
+     @Configuration
+     public class DataSourceConfig {
+     
+         @Bean
+         @ConfigurationProperties("spring.datasource")
+         public DruidDataSource druidDataSource(){
+             return new DruidDataSource();
+         }
+     
+     }
+     ```
+
+
+
+
+
+## 自定义用户登入界面
+
+复写继承自`WebSecurityConfigurerAdapter`的方法configure(),但是参数改版了变成了HttpSercurity
+
+```java
+package springsecurity.Config;
+
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.WebSecurityConfigurerAdapter;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+
+@Configuration
+public class DiyUserDetialsServiceConfig extends WebSecurityConfigurerAdapter {
+
+    //从IOC容器中取出   UserDetailsService的实现类
+    @Autowired
+    private UserDetailsService userDetailsService;
+    
+    @Override
+    protected void configure(AuthenticationManagerBuilder auth) throws Exception {
+
+           //设置使用哪个userDetailsService实现类
+            auth.userDetailsService(userDetailsService).passwordEncoder(passwordEncoder());
+    }
+
+    @Override
+    protected void configure(HttpSecurity http) throws Exception {
+         http.formLogin()  //自定义自己编写的登入页面
+             .loginPage("/login.html")  //登入页面设置
+             .loginProcessingUrl("/userlogin") //登入访问路径，说白了封装路径，在表单的action写入这个路径,实际会跳转success
+             .defaultSuccessUrl("/success")  //登入成功之后，跳转路径 ,真正意义上的跳转到Controller
+             .permitAll()   //表示同意
+                 .and()
+             .authorizeRequests().antMatchers("/","/hello","/userlogin").permitAll()//表示那些路径不会被拦截 ，可以不用认证直接访问
+                 .and()
+             .csrf().disable();//关闭csrf防护
+         ;
+
+    }
+
+    @Bean
+    public PasswordEncoder passwordEncoder(){
+        return new BCryptPasswordEncoder();
+    }
+}
+```
+
+![image-20210120191422708](https://raw.githubusercontent.com/Codemilk/LearnNotes/main/Pic/20210120191433.png)
+
+注意：表单的用户名和密码都必须是username和password
+
+![image-20210120191614036](https://raw.githubusercontent.com/Codemilk/LearnNotes/main/Pic/20210120191614.png)
+
+
+
+##  基于权限访问控制
+
+## hasAuthority()方法
+
+如果当前的主体具有指定的权限，则返回true，否则返回false
+
+在配置类设置当前访问地址有哪些权限
+
+![image-20210121195247432](https://raw.githubusercontent.com/Codemilk/LearnNotes/main/Pic/20210121195249.png)
+
+如何去给他赋予权力？我们前面已经见过了，在继承了UserDetailSsearch的类的方法中，有一个权力的list
+
+![image-20210121195720253](https://raw.githubusercontent.com/Codemilk/LearnNotes/main/Pic/20210121195721.png)
+
+![image-20210121200129053](https://raw.githubusercontent.com/Codemilk/LearnNotes/main/Pic/20210121200129.png)
+
+## 基于角色访问控制
+
